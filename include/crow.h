@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <string>
 #include <functional>
 #include <memory>
@@ -39,6 +40,12 @@ namespace crow
 #endif
         Crow()
         {
+        }
+
+		template <typename Adaptor> 
+        void handle_upgrade(const request& req, response& res, Adaptor&& adaptor)
+        {
+            router_.handle_upgrade(req, res, adaptor);
         }
 
         void handle(const request& req, response& res)
@@ -94,14 +101,30 @@ namespace crow
 #ifdef CROW_ENABLE_SSL
             if (use_ssl_)
             {
-                ssl_server_t server(this, bindaddr_, port_, &middlewares_, concurrency_, &ssl_context_);
-                server.run();
+                ssl_server_ = std::move(std::unique_ptr<ssl_server_t>(new ssl_server_t(this, bindaddr_, port_, &middlewares_, concurrency_, &ssl_context_)));
+                ssl_server_->set_tick_function(tick_interval_, tick_function_);
+                ssl_server_->run();
             }
             else
 #endif
             {
-                server_t server(this, bindaddr_, port_, &middlewares_, concurrency_, nullptr);
-                server.run();
+                server_ = std::move(std::unique_ptr<server_t>(new server_t(this, bindaddr_, port_, &middlewares_, concurrency_, nullptr)));
+                server_->set_tick_function(tick_interval_, tick_function_);
+                server_->run();
+            }
+        }
+
+        void stop()
+        {
+#ifdef CROW_ENABLE_SSL
+            if (use_ssl_)
+            {
+                ssl_server_->stop();
+            }
+            else
+#endif
+            {
+                server_->stop();
             }
         }
 
@@ -152,7 +175,7 @@ namespace crow
 
 #else
         template <typename T, typename ... Remain>
-        self_t& ssl_file(T&& t, Remain&&...)
+        self_t& ssl_file(T&&, Remain&&...)
         {
             // We can't call .ssl() member function unless CROW_ENABLE_SSL is defined.
             static_assert(
@@ -163,7 +186,7 @@ namespace crow
         }
 
         template <typename T>
-        self_t& ssl(T&& ctx)
+        self_t& ssl(T&&)
         {
             // We can't call .ssl() member function unless CROW_ENABLE_SSL is defined.
             static_assert(
@@ -190,15 +213,30 @@ namespace crow
             return utility::get_element_by_type<T, Middlewares...>(middlewares_);
         }
 
+        template <typename Duration, typename Func>
+        self_t& tick(Duration d, Func f) {
+            tick_interval_ = std::chrono::duration_cast<std::chrono::milliseconds>(d);
+            tick_function_ = f;
+            return *this;
+        }
+
     private:
         uint16_t port_ = 80;
         uint16_t concurrency_ = 1;
         std::string bindaddr_ = "0.0.0.0";
         Router router_;
 
+        std::chrono::milliseconds tick_interval_;
+        std::function<void()> tick_function_;
+
         std::tuple<Middlewares...> middlewares_;
+
+#ifdef CROW_ENABLE_SSL
+        std::unique_ptr<ssl_server_t> ssl_server_;
+#endif
+        std::unique_ptr<server_t> server_;
     };
     template <typename ... Middlewares>
     using App = Crow<Middlewares...>;
     using SimpleApp = Crow<>;
-};
+}

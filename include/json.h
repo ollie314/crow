@@ -12,6 +12,8 @@
 #include <boost/operators.hpp>
 #include <vector>
 
+#include "settings.h"
+
 #if defined(__GNUG__) || defined(__clang__)
 #define crow_json_likely(x) __builtin_expect(x, 1)
 #define crow_json_unlikely(x) __builtin_expect(x, 0)
@@ -92,7 +94,7 @@ namespace crow
                 case type::Object: return "Object";
                 default: return "Unknown";
             }
-        };
+        }
 
         class rvalue;
         rvalue load(const char* data, size_t size);
@@ -131,6 +133,8 @@ namespace crow
                     s_ = r.s_;
                     e_ = r.e_;
                     owned_ = r.owned_;
+                    if (r.owned_)
+                        r.owned_ = 0;
                     return *this;
                 }
 
@@ -164,7 +168,7 @@ namespace crow
                     return os;
                 }
             private:
-                void force(char* s, uint32_t length)
+                void force(char* s, uint32_t /*length*/)
                 {
                     s_ = s;
                     owned_ = 1;
@@ -262,6 +266,11 @@ namespace crow
                 return i();
             }
 
+            explicit operator uint64_t() const
+            {
+                return u();
+            }
+
             explicit operator int() const
             {
                 return (int)i();
@@ -292,6 +301,20 @@ namespace crow
                 }
 #endif
                 return boost::lexical_cast<int64_t>(start_, end_-start_);
+            }
+
+            uint64_t u() const
+            {
+#ifndef CROW_JSON_NO_ERROR_CHECK
+                switch (t()) {
+                    case type::Number:
+                    case type::String:
+                        return boost::lexical_cast<uint64_t>(start_, end_-start_);
+                    default:
+                        throw std::runtime_error(std::string("expected number, got: ") + get_type_str(t()));
+                }
+#endif
+                return boost::lexical_cast<uint64_t>(start_, end_-start_);
             }
 
             double d() const
@@ -671,7 +694,7 @@ namespace crow
             //static const char* escaped = "\"\\/\b\f\n\r\t";
             struct Parser
             {
-                Parser(char* data, size_t size)
+                Parser(char* data, size_t /*size*/)
                     : data(data)
                 {
                 }
@@ -1093,17 +1116,16 @@ namespace crow
                         s = r.s();
                         return;
                     case type::List:
-                        l = std::move(std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{}));
+                        l = std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{});
                         l->reserve(r.size());
                         for(auto it = r.begin(); it != r.end(); ++it)
                             l->emplace_back(*it);
                         return;
                     case type::Object:
-                        o = std::move(
-                            std::unique_ptr<
+                        o = std::unique_ptr<
                                     std::unordered_map<std::string, wvalue>
                                 >(
-                                new std::unordered_map<std::string, wvalue>{}));
+                                new std::unordered_map<std::string, wvalue>{});
                         for(auto it = r.begin(); it != r.end(); ++it)
                             o->emplace(it->key(), *it);
                         return;
@@ -1249,7 +1271,7 @@ namespace crow
                     reset();
                 t_ = type::List;
                 if (!l)
-                    l = std::move(std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{}));
+                    l = std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{});
                 l->clear();
                 l->resize(v.size());
                 size_t idx = 0;
@@ -1266,7 +1288,7 @@ namespace crow
                     reset();
                 t_ = type::List;
                 if (!l)
-                    l = std::move(std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{}));
+                    l = std::unique_ptr<std::vector<wvalue>>(new std::vector<wvalue>{});
                 if (l->size() < index+1)
                     l->resize(index+1);
                 return (*l)[index];
@@ -1287,11 +1309,10 @@ namespace crow
                     reset();
                 t_ = type::Object;
                 if (!o)
-                    o = std::move(
-                        std::unique_ptr<
+                    o = std::unique_ptr<
                                 std::unordered_map<std::string, wvalue>
                             >(
-                            new std::unordered_map<std::string, wvalue>{}));
+                            new std::unordered_map<std::string, wvalue>{});
                 return (*o)[str];
             }
 
